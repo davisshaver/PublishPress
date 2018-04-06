@@ -1,0 +1,32 @@
+<label for="{{ id }}_trigger">{{ labels.trigger }}</label>
+<select class="{{ list_class }}" name="{{ name }}[trigger]" id="{{ id }}_trigger">
+    <option
+            value="before"
+            {{ selected( values.trigger, 'before' ) }} >{{ labels.before }}</option>
+
+    <option
+            value="after"
+            {{ selected( values.trigger, 'after' ) }} >{{ labels.after }}</option>
+</select>
+
+<label for="{{ id }}_amount">{{ labels.amount }}</label>
+<select class="{{ list_class }}" name="{{ name }}[amount]" id="{{ id }}_amount">
+    {% for index in 1..60 %}
+        <option
+                value="{{ index }}"
+                {{ selected( values.amount, index ) }} >{{ index }}</option>
+    {% endfor %}
+</select>
+
+<label for="{{ id }}_unit">{{ labels.unit }}</label>
+<select class="{{ list_class }}" name="{{ name }}[unit]" id="{{ id }}_unit">
+    <option
+            value="hour"
+            {{ selected( values.unit, 'hour' ) }} >{{ labels.hour }}</option>
+    <option
+            value="day"
+            {{ selected( values.unit, 'day' ) }} >{{ labels.day }}</option>
+    <option
+            value="week"
+            {{ selected( values.unit, 'week' ) }} >{{ labels.week }}</option>
+</select>

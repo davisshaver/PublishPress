@@ -39,6 +39,7 @@
         }
 
         setupFieldFilters('event_post_save');
+        setupFieldFilters('event_publishing');
         setupFieldFilters('event_content_post_type');
         setupFieldFilters('event_content_category');
         setupFieldFilters('event_content_category');

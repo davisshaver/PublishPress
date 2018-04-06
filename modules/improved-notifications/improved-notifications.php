@@ -170,6 +170,8 @@ if (!class_exists('PP_Improved_Notifications'))
             add_action('transition_post_status', [$this, 'action_transition_post_status'], 999, 3);
             // Add action to intercep new editorial comments
             add_action('pp_post_insert_editorial_comment', [$this, 'action_editorial_comment'], 999, 3);
+            // Add action to detect need of send reminders before/after publish a post
+            add_action('pp_publishing_reminder', [$this, 'action_publishing_reminder'], 999, 3);
 
             // Add fields to the user's profile screen to select notification channels
             add_action('show_user_profile', [$this, 'user_profile_fields']);
@@ -383,6 +385,8 @@ if (!class_exists('PP_Improved_Notifications'))
          * Filters the enable_notifications on the Slack add-on to block it.
          *
          * @param bool $enable_notifications
+         *
+         * @return bool
          */
         public function filter_slack_enable_notifications($enable_notifications)
         {
@@ -399,7 +403,6 @@ if (!class_exists('PP_Improved_Notifications'))
          */
         public function action_transition_post_status($new_status, $old_status, $post)
         {
-
             // Ignore if the post_type is an internal post_type
             if (PUBLISHPRESS_NOTIF_POST_TYPE_WORKFLOW === $post->post_type)
             {
@@ -445,6 +448,35 @@ if (!class_exists('PP_Improved_Notifications'))
                 'new_status' => $post->post_status,
                 'old_status' => $post->post_status,
                 'comment'    => $comment,
+            ];
+
+            do_action('publishpress_notif_run_workflows', $args);
+        }
+
+        /**
+         * Action called constantly to identify posts wich need to trigger a reminder
+         * before or after publishing.
+         *
+         * @param WP_Post $post
+         */
+        public function action_publishing_reminder($post)
+        {
+            // Ignore if the post_type is an internal post_type
+            if (PUBLISHPRESS_NOTIF_POST_TYPE_WORKFLOW === $post->post_type)
+            {
+                return;
+            }
+
+            // Ignores auto-save
+            if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE)
+            {
+                return;
+            }
+
+            // Go ahead and do the action to run workflows
+            $args = [
+                'action'     => 'publishing_reminder',
+                'post'       => $post
             ];
 
             do_action('publishpress_notif_run_workflows', $args);
