@@ -310,7 +310,10 @@ if (!class_exists('PP_Module'))
             wp_enqueue_script('jquery-ui-datepicker');
 
             // Timepicker needs to come after jquery-ui-datepicker and jquery
-            wp_enqueue_script('publishpress-timepicker', PUBLISHPRESS_URL . 'common/js/jquery-ui-timepicker-addon.js', array('jquery', 'jquery-ui-datepicker'), PUBLISHPRESS_VERSION, true);
+            // Add filter as compatibility shim for WP All Export Pro.
+            if ( ! apply_filters( 'publishpress_disable_timepicker', false ) ) {
+                wp_enqueue_script('publishpress-timepicker', PUBLISHPRESS_URL . 'common/js/jquery-ui-timepicker-addon.js', array('jquery', 'jquery-ui-datepicker'), PUBLISHPRESS_VERSION, true);
+            }
             wp_enqueue_script('publishpress-date_picker', PUBLISHPRESS_URL . 'common/js/pp_date.js', array('jquery', 'jquery-ui-datepicker', 'publishpress-timepicker'), PUBLISHPRESS_VERSION, true);
 
             // Now styles
