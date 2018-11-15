@@ -28,13 +28,16 @@
  * along with PublishPress.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-if (!class_exists('PP_Addons'))
-{
+use PublishPress\Notifications\Traits\Dependency_Injector;
+
+if ( ! class_exists('PP_Addons')) {
     /**
      * class PP_Addons
      */
     class PP_Addons extends PP_Module
     {
+        use Dependency_Injector;
+
         /**
          * The name of the module
          */
@@ -46,11 +49,9 @@ if (!class_exists('PP_Addons'))
         const SETTINGS_SLUG = 'pp-addons';
 
         /**
-         * Twig instance
-         *
-         * @var Twig
+         * @var string
          */
-        protected $twig;
+        const MENU_SLUG = 'pp-addons';
 
         /**
          * Flag for debug
@@ -67,33 +68,22 @@ if (!class_exists('PP_Addons'))
             $this->module_url = $this->get_module_url(__FILE__);
 
             // Register the module with PublishPress
-            $args = array(
-                'title'                => __('Add-ons', 'publishpress'),
-                'short_description'    => __('Pro Add-ons for PublishPress', 'publishpress'),
+            $args = [
+                'title'                => __('Add-ons for PublishPress', 'publishpress'),
+                'short_description'    => '',
                 'extended_description' => false,
                 'module_url'           => $this->module_url,
                 'icon_class'           => 'dashicons dashicons-admin-settings',
                 'slug'                 => static::NAME,
-                'default_options'      => array(
+                'default_options'      => [
                     'enabled' => 'on',
-                ),
+                ],
                 'configure_page_cb'    => 'print_configure_view',
                 'autoload'             => true,
                 'options_page'         => false,
-            );
+            ];
 
             $this->module = PublishPress()->register_module(static::NAME, $args);
-
-            // Load Twig
-            $loader     = new Twig_Loader_Filesystem(__DIR__ . '/twig');
-            $this->twig = new Twig_Environment($loader, array(
-                'debug' => $this->debug,
-            ));
-
-            if ($this->debug)
-            {
-                $this->twig->addExtension(new Twig_Extension_Debug());
-            }
         }
 
         /**
@@ -101,57 +91,270 @@ if (!class_exists('PP_Addons'))
          */
         public function init()
         {
-            add_action('publishpress_admin_menu', array($this, 'action_admin_menu'), 19);
+            // Menu
+            add_filter('publishpress_admin_menu_slug', [$this, 'filter_admin_menu_slug'], 1000);
+            add_action('publishpress_admin_menu_page', [$this, 'action_admin_menu_page'], 1000);
+            add_action('publishpress_admin_submenu', [$this, 'action_admin_submenu'], 1000);
 
-            add_action('admin_enqueue_scripts', array($this, 'add_admin_scripts'));
+            add_filter('allex_addons', [$this, 'filter_allex_addons'], 10, 2);
+            add_action('allex_addon_update_license', [$this, 'action_allex_addon_update_license'], 10, 4);
+            add_filter('allex_addons_get_license_key', [$this, 'filter_allex_addons_get_license_key'], 10, 2);
+            add_filter('allex_addons_get_license_status', [$this, 'filter_allex_addons_get_license_status'], 10, 2);
+            add_filter('allex_upgrade_mailchimp_config', [$this, 'filter_allex_upgrade_mailchimp_config'], 10, 2);
+
+            $this->init_allex_addons();
         }
 
         /**
-         * Load any of the admin scripts we need but only on the pages we need them
+         * @throws Exception
          */
-        public function add_admin_scripts()
+        protected function init_allex_addons()
         {
-            wp_enqueue_style('publishpress-addons-css', $this->module_url . 'lib/addons.css', false, PUBLISHPRESS_VERSION, 'all');
+            $this->get_service('framework')->get_service('module_addons')->init();
         }
 
         /**
-         * Returns true if the plugin is active
+         * Filters the menu slug.
          *
-         * @param  string $plugin
+         * @param $menu_slug
          *
-         * @return boolean
+         * @return string
          */
-        protected function is_plugin_active($plugin)
+        public function filter_admin_menu_slug($menu_slug)
         {
-            return is_plugin_active("{$plugin}/{$plugin}.php");
+            if (empty($menu_slug) && $this->module_enabled('addons')) {
+                $menu_slug = self::MENU_SLUG;
+            }
+
+            return $menu_slug;
         }
 
         /**
-         * Returns true if the plugin is installed
-         *
-         * @param  string $plugin
-         *
-         * @return boolean
+         * Creates the admin menu if there is no menu set.
          */
-        protected function is_plugin_installed($plugin)
+        public function action_admin_menu_page()
         {
-            return file_exists(plugin_dir_path(PUBLISHPRESS_BASE_PATH) . "{$plugin}/{$plugin}.php");
+            $publishpress = $this->get_service('publishpress');
+
+            if ($publishpress->get_menu_slug() !== self::MENU_SLUG) {
+                return;
+            }
+
+            $publishpress->add_menu_page(
+                esc_html__('Add-ons', 'publishpress'),
+                apply_filters('pp_view_addons_cap', 'manage_options'),
+                self::MENU_SLUG,
+                [$this, 'render_admin_page']
+            );
         }
 
         /**
          * Add necessary things to the admin menu
          */
-        public function action_admin_menu()
+        public function action_admin_submenu()
         {
+            $publishpress = $this->get_service('publishpress');
+
             // Main Menu
             add_submenu_page(
-                'pp-calendar',
+                $publishpress->get_menu_slug(),
                 esc_html__('Add-ons', 'publishpress'),
                 esc_html__('Add-ons', 'publishpress'),
                 apply_filters('pp_view_addons_cap', 'manage_options'),
-                'pp-addons',
-                array($this, 'render_admin_page')
+                self::MENU_SLUG,
+                [$this, 'render_admin_page']
             );
+        }
+
+        /**
+         * @param $plugin_name
+         * @param $addon_slug
+         * @param $license_key
+         * @param $license_status
+         */
+        public function action_allex_addon_update_license($plugin_name, $addon_slug, $license_key, $license_status)
+        {
+            /**
+             * Duplicate the license key for backward compatibility with add-ons.
+             */
+
+            $option_name = $this->get_option_name_from_slug($addon_slug);
+
+            // Get current option
+            $options = get_option($option_name);
+
+            if (empty($options)) {
+                $options = new stdClass();
+            }
+
+            $options->license_key    = $license_key;
+            $options->license_status = $license_status;
+
+            update_option($option_name, $options);
+        }
+
+        /**
+         * @return array
+         */
+        protected function get_addons_list()
+        {
+            $addons = [
+                'publishpress-content-checklist'     => [
+                    'slug'        => 'publishpress-content-checklist',
+                    'title'       => __('Content Checklist', 'publishpress'),
+                    'description' => __(
+                        'Allows PublishPress teams to define tasks that must be complete before content is published.',
+                        'publishpress'
+                    ),
+                    'icon_class'  => 'fa fa-check-circle',
+                    'edd_id'      => 6465,
+                ],
+                'publishpress-slack'                 => [
+                    'slug'        => 'publishpress-slack',
+                    'title'       => __('Slack support', 'publishpress'),
+                    'description' => __(
+                        'PublishPress with Slack, so you can get comment and status change notifications directly on Slack.',
+                        'publishpress'
+                    ),
+                    'icon_class'  => 'fab fa-slack',
+                    'edd_id'      => 6728,
+                ],
+                'publishpress-permissions'           => [
+                    'slug'        => 'publishpress-permissions',
+                    'title'       => __('Permissions', 'publishpress'),
+                    'description' => __(
+                        'Allows you to control which users can complete certain tasks, such as publishing content.',
+                        'publishpress'
+                    ),
+                    'icon_class'  => 'fa fa-lock',
+                    'edd_id'      => 6920,
+                ],
+                'publishpress-woocommerce-checklist' => [
+                    'slug'        => 'publishpress-woocommerce-checklist',
+                    'title'       => __('WooCommerce Checklist', 'publishpress'),
+                    'description' => __(
+                        'This add-on allows WooCommerce teams to define tasks that must be complete before products are published.',
+                        'publishpress'
+                    ),
+                    'icon_class'  => 'fa fa-shopping-cart',
+                    'edd_id'      => 7000,
+                ],
+                'publishpress-multiple-authors'      => [
+                    'slug'        => 'publishpress-multiple-authors',
+                    'title'       => __('Multiple authors support', 'publishpress'),
+                    'description' => __(
+                        'Allows you choose multiple authors for a single post. This add-on is ideal for teams who write collaboratively.',
+                        'publishpress'
+                    ),
+                    'icon_class'  => 'fas fa-user-edit',
+                    'edd_id'      => 7203,
+                ],
+                'publishpress-reminders'             => [
+                    'slug'        => 'publishpress-reminders',
+                    'title'       => __('Reminders', 'publishpress'),
+                    'description' => __(
+                        'Automatically send notifications before or after content is published. Reminders are very useful for making sure your team meets its deadlines.',
+                        'publishpress'
+                    ),
+                    'icon_class'  => 'fa fa-bell',
+                    'edd_id'      => 12556,
+                ],
+            ];
+
+            return $addons;
+        }
+
+        /**
+         * @param $addons
+         * @param $plugin_name
+         *
+         * @return array
+         */
+        public function filter_allex_addons($addons, $plugin_name)
+        {
+            if ('publishpress' === $plugin_name) {
+                $addons = $this->get_addons_list();
+            }
+
+            return $addons;
+        }
+
+        /**
+         * @param $slug
+         *
+         * @return string
+         */
+        protected function get_option_name_from_slug($slug)
+        {
+            $options_map = [
+                'publishpress-content-checklist'     => 'publishpress_checklist_options',
+                'publishpress-multiple-authors'      => 'publishpress_multiple_authors_options',
+                'publishpress-woocommerce-checklist' => 'publishpress_woocommerce_checklist_options',
+                'publishpress-slack'                 => 'publishpress_slack_options',
+                'publishpress-permissions'           => 'publishpress_permissions_options',
+                'publishpress-reminders'             => 'publishpress_reminders_options',
+            ];
+
+            if (array_key_exists($slug, $options_map)) {
+                return $options_map[$slug];
+            }
+
+            return false;
+        }
+
+        /**
+         * @param $license_key
+         * @param $addon_slug
+         *
+         * @return string
+         */
+        public function filter_allex_addons_get_license_key($license_key, $addon_slug)
+        {
+            $option_name = $this->get_option_name_from_slug($addon_slug);
+
+            // Get the option
+            $options = get_option($option_name);
+
+            if ( ! empty($options) && is_object($options) && isset($options->license_key)) {
+                $license_key = $options->license_key;
+            }
+
+            return $license_key;
+        }
+
+        /**
+         * @param $license_status
+         * @param $addon_slug
+         *
+         * @return string
+         */
+        public function filter_allex_addons_get_license_status($license_status, $addon_slug)
+        {
+            $option_name = $this->get_option_name_from_slug($addon_slug);
+
+            // Get the option
+            $options = get_option($option_name);
+
+            if ( ! empty($options) && is_object($options) && isset($options->license_status)) {
+                $license_status = $options->license_status;
+            }
+
+            return $license_status;
+        }
+
+        /**
+         * @param array  $mailchimp_config
+         * @param string $plugin_name
+         *
+         * @return array
+         */
+        public function filter_allex_upgrade_mailchimp_config($mailchimp_config, $plugin_name)
+        {
+            $mailchimp_config['code']     = 'b_a42978bc16dd60d0ce3cac4d4_bb6f51185b';
+            $mailchimp_config['id']       = '132405';
+            $mailchimp_config['group_id'] = '2';
+
+            return $mailchimp_config;
         }
 
         /**
@@ -161,74 +364,9 @@ if (!class_exists('PP_Addons'))
         {
             global $publishpress;
 
-            $description = '<h2>' . __('Add-ons', 'publishpress') . '</h2>';
+            $publishpress->settings->print_default_header($publishpress->modules->addons, '');
 
-            $publishpress->settings->print_default_header($publishpress->modules->addons, $description);
-
-            $countEnabled    = 0;
-            $icons_base_path = plugins_url('publishpress') . '/modules/addons/lib/img/';
-
-            $addons = array(
-                'publishpress-content-checklist'     => array(
-                    'title'       => __('Content Checklist', 'publishpress'),
-                    'description' => __('Allows PublishPress teams to define tasks that must be complete before content is published.'),
-                    'available'   => true,
-                    'installed'   => $this->is_plugin_installed('publishpress-content-checklist'),
-                    'active'      => $this->is_plugin_active('publishpress-content-checklist'),
-                ),
-                'publishpress-slack'                 => array(
-                    'title'       => __('Slack support', 'publishpress'),
-                    'description' => __('PublishPress with Slack, so you can get comment and status change notifications directly on Slack.'),
-                    'available'   => true,
-                    'installed'   => $this->is_plugin_installed('publishpress-slack'),
-                    'active'      => $this->is_plugin_active('publishpress-slack'),
-                ),
-                'publishpress-permissions'           => array(
-                    'title'       => __('Permissions', 'publishpress'),
-                    'description' => __('Allows you to control which users can complete certain tasks, such as publishing content.'),
-                    'available'   => true,
-                    'installed'   => $this->is_plugin_installed('publishpress-permissions'),
-                    'active'      => $this->is_plugin_active('publishpress-permissions'),
-                ),
-                'publishpress-woocommerce-checklist' => array(
-                    'title'       => __('WooCommerce Checklist', 'publishpress'),
-                    'description' => __('This add-on allows WooCommerce teams to define tasks that must be complete before products are published.'),
-                    'available'   => true,
-                    'installed'   => $this->is_plugin_installed('publishpress-woocommerce-checklist'),
-                    'active'      => $this->is_plugin_active('publishpress-woocommerce-checklist'),
-                ),
-                'publishpress-multiple-authors'      => array(
-                    'title'       => __('Multiple authors support', 'publishpress'),
-                    'description' => __('Allows you choose multiple authors for a single post. This add-on is ideal for teams who write collabratively.'),
-                    'available'   => true,
-                    'installed'   => $this->is_plugin_installed('publishpress-multiple-authors'),
-                    'active'      => $this->is_plugin_active('publishpress-multiple-authors'),
-                ),
-                'publishpress-multi-site'            => array(
-                    'title'       => __('Multi-site and Multiple support', 'publishpress'),
-                    'description' => __('Enables PublishPress to support multiple WordPress sites. Write on one site, but publish to many sites.'),
-                    'available'   => false,
-                ),
-                'publishpress-zapier'                => array(
-                    'title'       => __('Zapier support', 'publishpress'),
-                    'description' => __('Integrates PublishPress with Zapier, so you can send comment and status changes notifications directly to Zapier.'),
-                    'available'   => false,
-                ),
-            );
-
-            $args = array(
-                'addons'          => $addons,
-                'icons_base_path' => $icons_base_path,
-                'labels'          => array(
-                    'active'         => __('Active', 'publishpress'),
-                    'installed'      => __('Installed', 'publishpress'),
-                    'get_pro_addons' => __('Get Pro Add-ons!', 'publishpress'),
-                    'coming_soon'    => __('Coming soon', 'publishpress'),
-                    'available'      => __('Available', 'publishpress'),
-                ),
-            );
-
-            echo $this->twig->render('list-of-addons.twig', $args);
+            do_action('allex_echo_addons_page', 'https://publishpress.com/pricing/', 'publishpress');
 
             $publishpress->settings->print_default_footer($publishpress->modules->addons);
         }

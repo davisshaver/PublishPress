@@ -14,7 +14,6 @@ use PublishPress\Notifications\Traits\PublishPress_Module;
 
 class Shortcodes
 {
-
     use Dependency_Injector;
     use PublishPress_Module;
 
@@ -61,12 +60,13 @@ class Shortcodes
     }
 
     /**
-     * Returns the user who triggered the worflow for notification.
+     * Returns the user who triggered the workflow for notification.
      * You can specify which user's property should be printed:
      *
      * [psppno_actor display_name]
      *
      * @param array $attrs
+     *
      * @return string
      */
     public function handle_psppno_actor($attrs)
@@ -106,17 +106,26 @@ class Shortcodes
      *
      * @param WP_User $user
      * @param array   $attrs
+     *
      * @return string
      */
     protected function get_user_data($user, $attrs)
     {
+        if ( ! is_array($attrs)) {
+            if ( ! empty($attrs)) {
+                $attrs[] = $attrs;
+            } else {
+                $attrs = [];
+            }
+        }
+
         // No attributes? Set the default one.
         if (empty($attrs)) {
             $attrs[] = 'display_name';
         }
 
         // Set the separator
-        if (!isset($attrs['separator'])) {
+        if ( ! isset($attrs['separator'])) {
             $attrs['separator'] = ', ';
         }
 
@@ -167,6 +176,7 @@ class Shortcodes
      *   - url
      *
      * @param array $attrs
+     *
      * @return string
      */
     public function handle_psppno_post($attrs)
@@ -209,6 +219,9 @@ class Shortcodes
      *
      * @param WP_Post $post
      * @param array   $attrs
+     *
+     * @throws \Exception
+     *
      * @return string
      */
     protected function get_post_data($post, $attrs)
@@ -221,7 +234,7 @@ class Shortcodes
         }
 
         // Set the separator
-        if (!isset($attrs['separator'])) {
+        if ( ! isset($attrs['separator'])) {
             $attrs['separator'] = ', ';
         }
 
@@ -266,7 +279,24 @@ class Shortcodes
 
                 case 'edit_link':
                     $admin_path = 'post.php?post=' . $post->ID . '&action=edit';
-                    $info[] = htmlspecialchars_decode(admin_url($admin_path));
+                    $info[]     = htmlspecialchars_decode(admin_url($admin_path));
+                    break;
+
+                case 'author_display_name':
+                case 'author_email':
+                case 'author_login':
+                    $authordata = get_userdata($post->post_author);
+
+                    $field_map = [
+                        'author_display_name' => 'display_name',
+                        'author_email'        => 'user_email',
+                        'author_login'        => 'user_login',
+                    ];
+
+                    $user_field = $field_map[$item];
+                    $data       = $authordata->{$user_field};
+
+                    $info[] = apply_filters('pp_get_author_data', $data, $item, $post);
                     break;
 
                 default:
@@ -290,6 +320,7 @@ class Shortcodes
      *   - title
      *
      * @param array $attrs
+     *
      * @return string
      */
     public function handle_psppno_workflow($attrs)
@@ -302,7 +333,7 @@ class Shortcodes
         }
 
         // Set the separator
-        if (!isset($attrs['separator'])) {
+        if ( ! isset($attrs['separator'])) {
             $attrs['separator'] = ', ';
         }
 
@@ -345,11 +376,12 @@ class Shortcodes
      *   - date
      *
      * @param array $attrs
+     *
      * @return string
      */
     public function handle_psppno_edcomment($attrs)
     {
-        if (!isset($this->action_args['comment'])) {
+        if ( ! isset($this->action_args['comment'])) {
             return;
         }
 
@@ -361,7 +393,7 @@ class Shortcodes
         }
 
         // Set the separator
-        if (!isset($attrs['separator'])) {
+        if ( ! isset($attrs['separator'])) {
             $attrs['separator'] = ', ';
         }
 

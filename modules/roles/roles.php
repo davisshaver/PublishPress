@@ -28,11 +28,12 @@
  * along with PublishPress.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use PublishPress\Core\Modules\AbstractModule;use PublishPress\Core\Modules\ModuleInterface;
+use PublishPress\Core\Modules\AbstractModule;
+use PublishPress\Core\Modules\ModuleInterface;
+use PublishPress\Notifications\Traits\Dependency_Injector;
 
-if (!class_exists('PP_Roles')) {
-
-    if (!class_exists('PP_Roles_List_Table')) {
+if ( ! class_exists('PP_Roles')) {
+    if ( ! class_exists('PP_Roles_List_Table')) {
         require_once __DIR__ . '/lib/list_table.php';
     }
 
@@ -43,7 +44,14 @@ if (!class_exists('PP_Roles')) {
      */
     class PP_Roles extends AbstractModule implements ModuleInterface
     {
+        use Dependency_Injector;
+
         const SETTINGS_SLUG = 'pp-roles-settings';
+
+        /**
+         * @var string
+         */
+        const MENU_SLUG = 'pp-manage-roles';
 
         const VALUE_YES = 'yes';
 
@@ -68,14 +76,14 @@ if (!class_exists('PP_Roles')) {
 
             // Register the module with PublishPress
             $args = [
-                'title'                => __('Roles', 'publishpress'),
-                'module_url'           => $this->module_url,
-                'icon_class'           => 'dashicons dashicons-feedback',
-                'slug'                 => 'roles',
-                'default_options'      => [
+                'title'           => __('Roles', 'publishpress'),
+                'module_url'      => $this->module_url,
+                'icon_class'      => 'dashicons dashicons-feedback',
+                'slug'            => 'roles',
+                'default_options' => [
                     'enabled' => 'on',
                 ],
-                'messages'             => [
+                'messages'        => [
                     'role-added'   => __("Role created. Feel free to add users to the role.", 'publishpress'),
                     'role-updated' => __("Role updated.", 'publishpress'),
                     'role-missing' => __("Role doesn't exist.", 'publishpress'),
@@ -146,7 +154,10 @@ if (!class_exists('PP_Roles')) {
 
             add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_scripts']);
 
-            add_action('publishpress_admin_menu', array($this, 'action_admin_menu'), 20);
+            // Menu
+            add_filter('publishpress_admin_menu_slug', [$this, 'filter_admin_menu_slug'], 40);
+            add_action('publishpress_admin_menu_page', [$this, 'action_admin_menu_page'], 40);
+            add_action('publishpress_admin_submenu', [$this, 'action_admin_submenu'], 40);
 
             add_action('profile_update', [$this, 'action_profile_update'], 10, 2);
             add_action('user_register', [$this, 'action_profile_update'], 9);
@@ -163,7 +174,7 @@ if (!class_exists('PP_Roles')) {
         {
             $version = get_option('publishpress_version', false);
 
-            $installed = !empty($version);
+            $installed = ! empty($version);
 
             if (PUBLISHPRESS_VERSION === $version) {
                 $installed = false;
@@ -208,7 +219,7 @@ if (!class_exists('PP_Roles')) {
 
             $crons = get_option('cron');
 
-            if (!empty($crons)) {
+            if ( ! empty($crons)) {
                 foreach ($crons as $time => $list) {
                     if (is_array($list) && array_key_exists('publishpress_migrate_groups_to_role', $list)) {
                         $scheduled = true;
@@ -222,7 +233,7 @@ if (!class_exists('PP_Roles')) {
         public function scheduleUserGroupMigration()
         {
             // Check if the cron do not exists before schedule another one
-            if (!$this->isUserGroupMigrationScheduled()) {
+            if ( ! $this->isUserGroupMigrationScheduled()) {
                 // Schedule for after 15 seconds.
                 wp_schedule_single_event(
                     time() + 15,
@@ -263,8 +274,9 @@ if (!class_exists('PP_Roles')) {
         {
             ?>
             <div class="notice notice-warning is-dismissible">
-                <p><?php _e('PublishPress detected legacy data which needs to be migrated. This task should run in the background in the next few minutes.', 'publishpress'); ?></p>
-                </div>
+                <p><?php _e('PublishPress detected legacy data which needs to be migrated. This task should run in the background in the next few minutes.',
+                        'publishpress'); ?></p>
+            </div>
             <?php
         }
 
@@ -276,7 +288,7 @@ if (!class_exists('PP_Roles')) {
             ?>
             <div class="notice notice-success is-dismissible">
                 <p><?php _e('PublishPress finished migrating the legacy data.', 'publishpress'); ?></p>
-                </div>
+            </div>
             <?php
         }
 
@@ -298,7 +310,7 @@ if (!class_exists('PP_Roles')) {
             // Try to get the user groups.
             $userGroups = $this->getLegacyUserGroups();
 
-            if (!empty($userGroups)) {
+            if ( ! empty($userGroups)) {
                 foreach ($userGroups as $userGroup) {
                     $this->convertUserGroupToRole($userGroup);
                 }
@@ -312,7 +324,7 @@ if (!class_exists('PP_Roles')) {
         {
             global $wpdb;
 
-            $wpdb->update($wpdb->term_taxonomy, array('taxonomy' => 'pp_notify_user'), array('taxonomy' => 'following_users'));
+            $wpdb->update($wpdb->term_taxonomy, ['taxonomy' => 'pp_notify_user'], ['taxonomy' => 'following_users']);
         }
 
         /**
@@ -324,7 +336,7 @@ if (!class_exists('PP_Roles')) {
 
             // Create the terms for each role
             $userGroups = $this->getLegacyUserGroups();
-            if (!empty($userGroups)) {
+            if ( ! empty($userGroups)) {
                 foreach ($userGroups as $userGroup) {
                     $term = term_exists($userGroup->slug, 'pp_notify_role');
 
@@ -335,7 +347,8 @@ if (!class_exists('PP_Roles')) {
                             'pp_notify_role',
                             [
                                 'slug' => $userGroup->slug,
-                            ]);
+                            ]
+                        );
                     }
 
                     if (is_wp_error($term)) {
@@ -344,10 +357,10 @@ if (!class_exists('PP_Roles')) {
                 }
             }
             // We do a custom query to save memory.
-            $query = "SELECT `ID` FROM {$wpdb->prefix}posts";
+            $query   = "SELECT `ID` FROM {$wpdb->prefix}posts";
             $postIds = $wpdb->get_results($query);
 
-            if (!empty($postIds)) {
+            if ( ! empty($postIds)) {
                 foreach ($postIds as $postId) {
                     $postId = $postId->ID;
 
@@ -355,11 +368,11 @@ if (!class_exists('PP_Roles')) {
                     $postTerms    = get_the_terms($postId, 'pp_notify_role');
                     $postTermsIds = [];
 
-                    if (!empty($postTerms)) {
+                    if ( ! empty($postTerms)) {
                         foreach ($postTerms as $term) {
                             if (is_object($term)) {
                                 $termId = $term->term_id;
-                            } else if (is_array($term)) {
+                            } elseif (is_array($term)) {
                                 $termId = $term['term_id'];
                             }
 
@@ -368,14 +381,14 @@ if (!class_exists('PP_Roles')) {
                     }
 
                     // debug
-                    if (!in_array($postId, [138, 140])) {
+                    if ( ! in_array($postId, [138, 140])) {
                         continue;
                     }
 
                     // Get the following user groups
                     $terms = get_the_terms($postId, 'pp_usergroup');
 
-                    if (!empty($terms)) {
+                    if ( ! empty($terms)) {
                         foreach ($terms as $oldTerm) {
                             // Get the new term
                             $newTerm = get_term_by('slug', $oldTerm->slug, 'pp_notify_role');
@@ -389,7 +402,7 @@ if (!class_exists('PP_Roles')) {
                                     true
                                 );
 
-                                if (!empty($result)) {
+                                if ( ! empty($result)) {
                                     // Remove old terms
                                     wp_remove_object_terms(
                                         $postId,
@@ -412,7 +425,7 @@ if (!class_exists('PP_Roles')) {
          */
         protected function convertUserGroupToRole($userGroup)
         {
-            if (!($userGroup instanceof \WP_Term)) {
+            if ( ! ($userGroup instanceof \WP_Term)) {
                 return;
             }
 
@@ -424,11 +437,11 @@ if (!class_exists('PP_Roles')) {
                 $role = $this->addRole($userGroup->slug, $userGroup->name);
 
                 // Check if we need to add users from the user group to the role.
-                if (!empty($userGroup->user_ids)) {
+                if ( ! empty($userGroup->user_ids)) {
                     foreach ($userGroup->user_ids as $userId) {
                         $user = $this->getUserById($userId);
 
-                        if (!empty($user)) {
+                        if ( ! empty($user)) {
                             $user->add_role($role->name);
                         }
                     }
@@ -496,9 +509,9 @@ if (!class_exists('PP_Roles')) {
                 'pp_usergroup',
                 'post',
                 [
-                    'label' => 'User Group',
-                    'public' => false,
-                    'rewrite' => false,
+                    'label'        => 'User Group',
+                    'public'       => false,
+                    'rewrite'      => false,
                     'hierarchical' => false,
                 ]
             );
@@ -517,7 +530,7 @@ if (!class_exists('PP_Roles')) {
             foreach ($userGroupTerms as $userGroupTerm) {
                 $userGroup = get_term_by('id', $userGroupTerm->term_id, 'pp_usergroup');
 
-                if (!$userGroup || is_wp_error($userGroup)) {
+                if ( ! $userGroup || is_wp_error($userGroup)) {
                     return $userGroup;
                 }
 
@@ -546,7 +559,7 @@ if (!class_exists('PP_Roles')) {
             // Try to get thea user groups.
             $userGroups = $this->getLegacyUserGroups();
 
-            if (!empty($userGroups)) {
+            if ( ! empty($userGroups)) {
                 foreach ($userGroups as $userGroup) {
                     $this->removeUserGroup($userGroup->term_id);
                 }
@@ -562,32 +575,62 @@ if (!class_exists('PP_Roles')) {
         {
             if (isset($_GET['page']) && $_GET['page'] === 'pp-manage-roles') {
                 // Settings page
-                wp_enqueue_script('publishpress-chosen-js', PUBLISHPRESS_URL . '/common/libs/chosen/chosen.jquery.js',
-                    ['jquery'], PUBLISHPRESS_VERSION);
-                wp_enqueue_script('publishpress-roles-js', $this->module_url . 'assets/js/admin.js',
-                    ['jquery', 'publishpress-chosen-js'], PUBLISHPRESS_VERSION);
+                wp_enqueue_script(
+                    'publishpress-chosen-js',
+                    PUBLISHPRESS_URL . '/common/libs/chosen/chosen.jquery.js',
+                    ['jquery'],
+                    PUBLISHPRESS_VERSION
+                );
+                wp_enqueue_script(
+                    'publishpress-roles-js',
+                    $this->module_url . 'assets/js/admin.js',
+                    ['jquery', 'publishpress-chosen-js'],
+                    PUBLISHPRESS_VERSION
+                );
 
-                wp_enqueue_style('publishpress-chosen-css', PUBLISHPRESS_URL . '/common/libs/chosen/chosen.css', false,
-                    PUBLISHPRESS_VERSION);
-                wp_enqueue_style('publishpress-roles-css', $this->module_url . 'assets/css/admin.css',
-                    ['publishpress-chosen-css'], PUBLISHPRESS_VERSION);
+                wp_enqueue_style(
+                    'publishpress-chosen-css',
+                    PUBLISHPRESS_URL . '/common/libs/chosen/chosen.css',
+                    false,
+                    PUBLISHPRESS_VERSION
+                );
+                wp_enqueue_style(
+                    'publishpress-roles-css',
+                    $this->module_url . 'assets/css/admin.css',
+                    ['publishpress-chosen-css'],
+                    PUBLISHPRESS_VERSION
+                );
             } else {
                 if (function_exists('get_current_screen')) {
                     $screen = get_current_screen();
 
                     if ('user-edit' === $screen->base || ('user' === $screen->base && 'add' === $screen->action)) {
                         // Check if we are on the user's profile page
-                        wp_enqueue_script('publishpress-chosen-js',
+                        wp_enqueue_script(
+                            'publishpress-chosen-js',
                             PUBLISHPRESS_URL . '/common/libs/chosen/chosen.jquery.js',
-                            ['jquery'], PUBLISHPRESS_VERSION);
-                        wp_enqueue_script('publishpress-roles-profile-js', $this->module_url . 'assets/js/profile.js',
-                            ['jquery', 'publishpress-chosen-js'], PUBLISHPRESS_VERSION);
+                            ['jquery'],
+                            PUBLISHPRESS_VERSION
+                        );
+                        wp_enqueue_script(
+                            'publishpress-roles-profile-js',
+                            $this->module_url . 'assets/js/profile.js',
+                            ['jquery', 'publishpress-chosen-js'],
+                            PUBLISHPRESS_VERSION
+                        );
 
-                        wp_enqueue_style('publishpress-chosen-css', PUBLISHPRESS_URL . '/common/libs/chosen/chosen.css',
+                        wp_enqueue_style(
+                            'publishpress-chosen-css',
+                            PUBLISHPRESS_URL . '/common/libs/chosen/chosen.css',
                             false,
-                            PUBLISHPRESS_VERSION);
-                        wp_enqueue_style('publishpress-roles-profile-css', $this->module_url . 'assets/css/profile.css',
-                            ['publishpress-chosen-css'], PUBLISHPRESS_VERSION);
+                            PUBLISHPRESS_VERSION
+                        );
+                        wp_enqueue_style(
+                            'publishpress-roles-profile-css',
+                            $this->module_url . 'assets/css/profile.css',
+                            ['publishpress-chosen-css'],
+                            PUBLISHPRESS_VERSION
+                        );
 
                         $userId = isset($_GET['user_id']) ? (int)$_GET['user_id'] : 0;
 
@@ -612,26 +655,30 @@ if (!class_exists('PP_Roles')) {
         public function action_profile_update($userId, $oldUserData = [])
         {
             // Check if we need to update the user's roles, allowing to set multiple roles.
-            if (isset($_POST['pp_roles'])) {
+            if (isset($_POST['pp_roles']) && current_user_can('promote_users')) {
                 // Remove the user's roles
                 $user = get_user_by('ID', $userId);
 
                 $newRoles     = $_POST['pp_roles'];
                 $currentRoles = $user->roles;
 
+                if (empty($newRoles) || ! is_array($newRoles)) {
+                    return;
+                }
+
                 // Remove unselected roles
                 foreach ($currentRoles as $role) {
                     // Check if it is a bbPress rule. If so, don't remove it.
                     $isBBPressRole = preg_match('/^bbp_/', $role);
 
-                    if (!in_array($role, $newRoles) && !$isBBPressRole) {
+                    if ( ! in_array($role, $newRoles) && ! $isBBPressRole) {
                         $user->remove_role($role);
                     }
                 }
 
                 // Add new roles
                 foreach ($newRoles as $role) {
-                    if (!in_array($role, $currentRoles)) {
+                    if ( ! in_array($role, $currentRoles)) {
                         $user->add_role($role);
                     }
                 }
@@ -667,15 +714,16 @@ if (!class_exists('PP_Roles')) {
          *
          * @param string $action Action we want the user to take
          * @param array  $args   Any query args to add to the URL
+         *
          * @return string $link Direct link to delete a route
          */
         public function getLink($args = [])
         {
-            if (!isset($args['action'])) {
+            if ( ! isset($args['action'])) {
                 $args['action'] = '';
             }
 
-            if (!isset($args['page'])) {
+            if ( ! isset($args['page'])) {
                 $args['page'] = static::PAGE_SLUG;
             }
 
@@ -692,18 +740,55 @@ if (!class_exists('PP_Roles')) {
         }
 
         /**
+         * Filters the menu slug.
+         *
+         * @param $menu_slug
+         *
+         * @return string
+         */
+        public function filter_admin_menu_slug($menu_slug)
+        {
+            if (empty($menu_slug) && $this->module_enabled('roles')) {
+                $menu_slug = self::MENU_SLUG;
+            }
+
+            return $menu_slug;
+        }
+
+        /**
+         * Creates the admin menu if there is no menu set.
+         */
+        public function action_admin_menu_page()
+        {
+            $publishpress = $this->get_service('publishpress');
+
+            if ($publishpress->get_menu_slug() !== self::MENU_SLUG) {
+                return;
+            }
+
+            $publishpress->add_menu_page(
+                esc_html__('Roles', 'publishpress'),
+                apply_filters('pp_manage_roles_cap', 'pp_manage_roles'),
+                self::MENU_SLUG,
+                [$this, 'render_admin_page']
+            );
+        }
+
+        /**
          * Add necessary things to the admin menu
          */
-        public function action_admin_menu()
+        public function action_admin_submenu()
         {
+            $publishpress = $this->get_service('publishpress');
+
             // Main Menu
             add_submenu_page(
-                'pp-calendar',
+                $publishpress->get_menu_slug(),
                 esc_html__('Roles', 'publishpress'),
                 esc_html__('Roles', 'publishpress'),
                 apply_filters('pp_manage_roles_cap', 'pp_manage_roles'),
-                'pp-manage-roles',
-                array($this, 'render_admin_page')
+                self::MENU_SLUG,
+                [$this, 'render_admin_page']
             );
         }
 
@@ -718,7 +803,7 @@ if (!class_exists('PP_Roles')) {
 
             echo '<div class="wrap">';
 
-            $action = isset($_GET['action']) && !empty($_GET['action']) ? $_GET['action'] : 'add-role';
+            $action = isset($_GET['action']) && ! empty($_GET['action']) ? $_GET['action'] : 'add-role';
 
             $role = (object)[
                 'name'         => isset($_POST['name']) ? $_POST['name'] : '',
@@ -730,10 +815,10 @@ if (!class_exists('PP_Roles')) {
             if (isset($_GET['role-id']) && $action == 'edit-role') {
                 $role_id = preg_replace('[a-z\-]', '', $_GET['role-id']);
 
-                if (!empty($role_id)) {
+                if ( ! empty($role_id)) {
                     $role_obj = get_role($role_id);
 
-                    if (!empty($role_obj)) {
+                    if ( ! empty($role_obj)) {
                         $editable_roles = get_editable_roles();
 
                         $role->name = $role_obj->name;
@@ -758,14 +843,14 @@ if (!class_exists('PP_Roles')) {
             // Get selected users, if any role is being edited.
             $role_users = [];
 
-            if (!empty($role->name)) {
+            if ( ! empty($role->name)) {
                 $users_in_the_role = get_users(
                     [
                         'role' => $role->name,
                     ]
                 );
 
-                if (!empty($users_in_the_role)) {
+                if ( ! empty($users_in_the_role)) {
                     foreach ($users_in_the_role as $user) {
                         $role_users[] = $user->ID;
                     }
@@ -785,8 +870,10 @@ if (!class_exists('PP_Roles')) {
                         'display_name'             => __("Display name", 'publishpress'),
                         'display_name_description' => __("This is the name that users will see.", 'publishpress'),
                         'name'                     => __('Developer Name (ID)', 'publishpress'),
-                        'name_description'         => __('This is the name that developers can use to interact with this role. Only use A-Z letters and the "-" sign.',
-                            'publishpress'),
+                        'name_description'         => __(
+                            'This is the name that developers can use to interact with this role. Only use A-Z letters and the "-" sign.',
+                            'publishpress'
+                        ),
                         'users'                    => __("Users", 'publishpress'),
                         'users_description'        => __("Add users to this role.", 'publishpress'),
                     ],
@@ -808,16 +895,16 @@ if (!class_exists('PP_Roles')) {
          */
         public function handle_add_role()
         {
-            if (!isset($_POST['submit'], $_POST['form-action'], $_GET['page'])
-                || ($_GET['page'] != static::PAGE_SLUG) || $_POST['form-action'] != 'add-role') {
+            if ( ! isset($_POST['submit'], $_POST['form-action'], $_GET['page'])
+                 || ($_GET['page'] != static::PAGE_SLUG) || $_POST['form-action'] != 'add-role') {
                 return;
             }
 
-            if (!wp_verify_nonce($_POST['_wpnonce'], 'manage-role')) {
+            if ( ! wp_verify_nonce($_POST['_wpnonce'], 'manage-role')) {
                 wp_die($this->module->messages['nonce-failed']);
             }
 
-            if (!current_user_can($this->cap_manage_roles)) {
+            if ( ! current_user_can($this->cap_manage_roles)) {
                 wp_die($this->module->messages['invalid-permissions']);
             }
 
@@ -842,23 +929,29 @@ if (!class_exists('PP_Roles')) {
 
             // Check to ensure a role with the same name doesn't exist
             $role = get_role($name);
-            if (!empty($role)) {
+            if ( ! empty($role)) {
                 $_REQUEST['form-errors']['name'] = __('Name already in use. Please choose another.', 'publishpress');
             }
 
             if (strlen($name) > 40) {
-                $_REQUEST['form-errors']['name'] = __('Role name cannot exceed 40 characters. Please try a shorter name.',
-                    'publishpress');
+                $_REQUEST['form-errors']['name'] = __(
+                    'Role name cannot exceed 40 characters. Please try a shorter name.',
+                    'publishpress'
+                );
             }
 
             if (empty($display_name)) {
-                $_REQUEST['form-errors']['display_name'] = __('Please enter a display name for the role.',
-                    'publishpress');
+                $_REQUEST['form-errors']['display_name'] = __(
+                    'Please enter a display name for the role.',
+                    'publishpress'
+                );
             }
 
             if (strlen($display_name) > 40) {
-                $_REQUEST['form-errors']['display_name'] = __('Role\'s display name cannot exceed 40 characters. Please try a shorter name.',
-                    'publishpress');
+                $_REQUEST['form-errors']['display_name'] = __(
+                    'Role\'s display name cannot exceed 40 characters. Please try a shorter name.',
+                    'publishpress'
+                );
             }
 
             // Kick out if there are any errors
@@ -875,7 +968,7 @@ if (!class_exists('PP_Roles')) {
             }
 
             // Check if we have to add users to this role.
-            if (!empty($users)) {
+            if ( ! empty($users)) {
                 foreach ($users as $user_id) {
                     $user = get_user_by('ID', (int)$user_id);
                     $user->add_role($name);
@@ -897,16 +990,18 @@ if (!class_exists('PP_Roles')) {
          */
         public function handle_edit_role()
         {
-            if (!isset($_POST['submit'], $_POST['form-action'], $_GET['page'])
-                || ($_GET['page'] != static::PAGE_SLUG) || $_POST['form-action'] != 'edit-role') {
+            global $wpdb;
+
+            if ( ! isset($_POST['submit'], $_POST['form-action'], $_GET['page'])
+                 || ($_GET['page'] != static::PAGE_SLUG) || $_POST['form-action'] != 'edit-role') {
                 return;
             }
 
-            if (!wp_verify_nonce($_POST['_wpnonce'], 'manage-role')) {
+            if ( ! wp_verify_nonce($_POST['_wpnonce'], 'manage-role')) {
                 wp_die($this->module->messages['nonce-failed']);
             }
 
-            if (!current_user_can($this->cap_manage_roles)) {
+            if ( ! current_user_can($this->cap_manage_roles)) {
                 wp_die($this->module->messages['invalid-permissions']);
             }
 
@@ -930,8 +1025,10 @@ if (!class_exists('PP_Roles')) {
             }
 
             if (strlen($display_name) > 40) {
-                $_REQUEST['form-errors']['name'] = __('Role\'s display name cannot exceed 40 characters. Please try a shorter name.',
-                    'publishpress');
+                $_REQUEST['form-errors']['name'] = __(
+                    'Role\'s display name cannot exceed 40 characters. Please try a shorter name.',
+                    'publishpress'
+                );
             }
 
             // Kick out if there are any errors
@@ -942,18 +1039,18 @@ if (!class_exists('PP_Roles')) {
             }
 
             // Get all the roles and edit the current role. Saving all the roles again in the options table.
-            $roles = get_option('wp_user_roles');
+            $roles = get_option($wpdb->prefix . 'user_roles');
             if (is_wp_error($roles) || empty($roles)) {
                 wp_die(__('Error loading role.', 'publishpress'));
             }
 
-            if (!isset($roles[$name])) {
+            if ( ! isset($roles[$name])) {
                 wp_die(__('Role not found. Can\'t edit.', 'publishpress'));
             }
 
             $roles[$name]['name'] = $display_name;
 
-            update_option('wp_user_roles', $roles);
+            update_option($wpdb->prefix . 'user_roles', $roles);
 
             // Check if we have to remove users from this role.
             $users_in_the_role = get_users(
@@ -962,21 +1059,21 @@ if (!class_exists('PP_Roles')) {
                 ]
             );
 
-            if (!empty($users_in_the_role)) {
+            if ( ! empty($users_in_the_role)) {
                 foreach ($users_in_the_role as $user) {
                     // Check if you not are trying to remove yourself from administrator, and block if so.
                     if ('administrator' === $name && $user->ID === get_current_user_id()) {
                         continue;
                     }
 
-                    if (!in_array($user->ID, $users)) {
+                    if ( ! in_array($user->ID, $users)) {
                         $user->remove_role($name);
                     }
                 }
             }
 
             // Check if we have to add users to this role.
-            if (!empty($users)) {
+            if ( ! empty($users)) {
                 foreach ($users as $user_id) {
                     $user = get_user_by('ID', (int)$user_id);
                     $user->add_role($name);
@@ -998,16 +1095,16 @@ if (!class_exists('PP_Roles')) {
          */
         public function handle_delete_role()
         {
-            if (!isset($_GET['action'], $_GET['page'])
-                || ($_GET['page'] != static::PAGE_SLUG) || $_GET['action'] != 'delete-role') {
+            if ( ! isset($_GET['action'], $_GET['page'])
+                 || ($_GET['page'] != static::PAGE_SLUG) || $_GET['action'] != 'delete-role') {
                 return;
             }
 
-            if (!wp_verify_nonce($_GET['nonce'], 'manage-role')) {
+            if ( ! wp_verify_nonce($_GET['nonce'], 'manage-role')) {
                 wp_die($this->module->messages['nonce-failed']);
             }
 
-            if (!current_user_can($this->cap_manage_roles)) {
+            if ( ! current_user_can($this->cap_manage_roles)) {
                 wp_die($this->module->messages['invalid-permissions']);
             }
 
@@ -1043,7 +1140,6 @@ if (!class_exists('PP_Roles')) {
          */
         public function register_settings()
         {
-
         }
     }
 }
